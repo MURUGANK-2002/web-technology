@@ -1,0 +1,196 @@
+default.aspx :
+
+<%@ Page Language="C#" AutoEventWireup="true" CodeFile="Default.aspx.cs" Inherits="WebFormsAuth.MultiPage" %>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login System</title>
+</head>
+<body>
+    <form id="form1" runat="server">
+        <div id="pnlLogin" runat="server">
+            <h2>Login</h2>
+            <asp:Label ID="lblLoginMessage" runat="server" ForeColor="Red"></asp:Label>
+            <br />
+            <asp:Label ID="lblUsername" runat="server" Text="Username:"></asp:Label>
+            <asp:TextBox ID="txtUsername" runat="server"></asp:TextBox>
+            <br />
+            <asp:Label ID="lblPassword" runat="server" Text="Password:"></asp:Label>
+            <asp:TextBox ID="txtPassword" runat="server" TextMode="Password"></asp:TextBox>
+            <br />
+            <asp:Button ID="btnLogin" runat="server" Text="Login" OnClick="btnLogin_Click" />
+        </div>
+
+        <div id="pnlUser" runat="server" visible="false">
+            <h2>Welcome, <asp:Label ID="lblUserWelcome" runat="server"></asp:Label></h2>
+            <p>This is a secure page for regular users. You can access information available for general users here.</p>
+            <asp:Button ID="btnLogoutUser" runat="server" Text="Logout" OnClick="btnLogout_Click" />
+        </div>
+
+        <div id="pnlAdmin" runat="server" visible="false">
+            <h2>Admin Panel</h2>
+            <h3>Logged-In Users</h3>
+            <asp:GridView ID="gvLoggedUsers" runat="server" AutoGenerateColumns="True"></asp:GridView>
+            <asp:Button ID="btnLogoutAdmin" runat="server" Text="Logout" OnClick="btnLogout_Click" />
+        </div>
+
+        <div id="pnlAccessDenied" runat="server" visible="false">
+            <h2>Access Denied</h2>
+            <p>You do not have permission to access the Admin Panel.</p>
+            <asp:Button ID="btnBackToLogin" runat="server" Text="Back to Login" OnClick="btnBackToLogin_Click" />
+        </div>
+    </form>
+</body>
+</html>
+
+
+default.aspx.cs :
+
+using System;
+using System.Data;
+using System.Data.SqlClient;
+
+namespace WebFormsAuth
+{
+    public partial class MultiPage : System.Web.UI.Page
+    {
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (!IsPostBack)
+            {
+                pnlLogin.Visible = true;
+                pnlUser.Visible = false;
+                pnlAdmin.Visible = false;
+                pnlAccessDenied.Visible = false;
+            }
+        }
+
+        protected void btnLogin_Click(object sender, EventArgs e)
+        {
+            string username = txtUsername.Text.Trim();
+            string password = txtPassword.Text.Trim();
+
+            try
+            {
+                string connectionString = "Data Source=DESKTOP-60M2DJB\\SQLEXPRESS;Initial Catalog=wt;Integrated Security=True;";
+
+                using (SqlConnection conn = new SqlConnection(connectionString))
+                {
+                    conn.Open();
+
+                    // Authenticate user
+                    string query = @"
+                        SELECT Role 
+                        FROM Users 
+                        WHERE Username = @Username 
+                          AND Password = @Password";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@Username", username);
+                    cmd.Parameters.AddWithValue("@Password", password);
+
+                    object role = cmd.ExecuteScalar();
+
+                    if (role != null)
+                    {
+                        string userRole = role.ToString();
+                        Session["Role"] = userRole;
+                        Session["Username"] = username;
+
+                        // Log user login event
+                        string logQuery = @"
+                            INSERT INTO UserLogins (Username, LoginTime) 
+                            VALUES (@Username, @LoginTime)";
+                        SqlCommand logCmd = new SqlCommand(logQuery, conn);
+                        logCmd.Parameters.AddWithValue("@Username", username);
+                        logCmd.Parameters.AddWithValue("@LoginTime", DateTime.Now);
+                        logCmd.ExecuteNonQuery();
+
+                        if (userRole == "Admin")
+                        {
+                            ShowAdminPanel(conn);
+                        }
+                        else
+                        {
+                            ShowUserPanel(username);
+                        }
+                    }
+                    else
+                    {
+                        lblLoginMessage.Text = "Invalid username or password.";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lblLoginMessage.Text = "An error occurred: " + ex.Message;
+            }
+        }
+
+        private void ShowUserPanel(string username)
+        {
+            pnlLogin.Visible = false;
+            pnlUser.Visible = true;
+            lblUserWelcome.Text = username;
+        }
+
+        private void ShowAdminPanel(SqlConnection conn)
+        {
+            pnlLogin.Visible = false;
+            pnlAdmin.Visible = true;
+
+            // Retrieve logged-in users
+            string fetchQuery = "SELECT Username, LoginTime FROM UserLogins ORDER BY LoginTime DESC";
+            SqlDataAdapter adapter = new SqlDataAdapter(fetchQuery, conn);
+            DataTable dt = new DataTable();
+            adapter.Fill(dt);
+
+            gvLoggedUsers.DataSource = dt;
+            gvLoggedUsers.DataBind();
+        }
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            pnlLogin.Visible = true;
+            pnlUser.Visible = false;
+            pnlAdmin.Visible = false;
+            pnlAccessDenied.Visible = false;
+        }
+
+        protected void btnBackToLogin_Click(object sender, EventArgs e)
+        {
+            pnlLogin.Visible = true;
+            pnlUser.Visible = false;
+            pnlAdmin.Visible = false;
+            pnlAccessDenied.Visible = false;
+        }
+    }
+}
+
+
+Database :
+
+create database wt;
+use wt;
+CREATE TABLE Users (
+    Username NVARCHAR(50) NOT NULL PRIMARY KEY,
+    Password NVARCHAR(50) NOT NULL,
+    Role NVARCHAR(20) NOT NULL
+);
+
+
+use wt;
+INSERT INTO Users (Username, Password, Role)
+VALUES 
+('admin', 'admin123', 'Admin'),
+('user', 'user123', 'User');
+
+
+use wt;
+CREATE TABLE UserLogins (
+    LoginID INT IDENTITY(1,1) PRIMARY KEY,
+    Username NVARCHAR(50) NOT NULL,
+    LoginTime DATETIME NOT NULL
+);

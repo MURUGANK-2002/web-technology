@@ -1,0 +1,166 @@
+Default.aspx 
+
+<%@ Page Language="C#" AutoEventWireup="true" CodeBehind="Default.aspx.cs" Inherits="WebApplication5.Products" %>
+
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head runat="server">
+    <title>Product Management</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2, h3 { color: #4CAF50; }
+        table { margin-top: 20px; border-collapse: collapse; width: 100%; }
+        table, th, td { border: 1px solid #ddd; }
+        th, td { padding: 10px; text-align: center; }
+        input, button { margin: 5px; padding: 5px; }
+    </style>
+</head>
+<body>
+    <form id="form1" runat="server">
+        <div>
+            <h2>Product Management</h2>
+            <asp:GridView ID="GridViewProducts" runat="server" AutoGenerateColumns="False" 
+                          OnRowDeleting="GridViewProducts_RowDeleting" BorderColor="#ddd" BorderWidth="1px" DataKeyNames="ProductID">
+                <Columns>
+                    <asp:BoundField DataField="ProductID" HeaderText="Product ID" ReadOnly="True" />
+                    <asp:BoundField DataField="ProductName" HeaderText="Product Name" />
+                    <asp:BoundField DataField="Price" HeaderText="Price" />
+                    <asp:BoundField DataField="Quantity" HeaderText="Quantity" />
+                    <asp:CommandField ShowDeleteButton="True" HeaderText="Actions" />
+                </Columns>
+            </asp:GridView>
+            <h3>Add New Product</h3>
+            <asp:TextBox ID="txtProductName" runat="server" Placeholder="Product Name"></asp:TextBox>
+            <asp:TextBox ID="txtPrice" runat="server" Placeholder="Price"></asp:TextBox>
+            <asp:TextBox ID="txtQuantity" runat="server" Placeholder="Quantity"></asp:TextBox>
+            <asp:Button ID="btnAddProduct" runat="server" Text="Add Product" OnClick="btnAddProduct_Click" />
+        </div>
+    </form>
+</body>
+</html>
+
+
+Default.aspx.cs
+
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace WebApplication5
+{
+    public partial class Products : Page
+    {
+        private string connectionString = "Data Source=DESKTOP-60M2DJB\\SQLEXPRESS;Initial Catalog=wt5;Integrated Security=True;";
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (!IsPostBack) BindGridView();
+        }
+
+        private void BindGridView()
+        {
+            using (SqlConnection conn = new SqlConnection(connectionString))
+            {
+                SqlDataAdapter adapter = new SqlDataAdapter("SELECT * FROM Products", conn);
+                DataTable dt = new DataTable();
+                adapter.Fill(dt);
+                GridViewProducts.DataSource = dt;
+                GridViewProducts.DataBind();
+            }
+        }
+
+        protected void btnAddProduct_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(txtProductName.Text) || !decimal.TryParse(txtPrice.Text, out decimal price) || !int.TryParse(txtQuantity.Text, out int quantity))
+            {
+                Response.Write("<script>alert('Invalid inputs.');</script>");
+                return;
+            }
+
+            using (SqlConnection conn = new SqlConnection(connectionString))
+            {
+                SqlCommand cmd = new SqlCommand("INSERT INTO Products (ProductName, Price, Quantity) VALUES (@ProductName, @Price, @Quantity)", conn);
+                cmd.Parameters.AddWithValue("@ProductName", txtProductName.Text.Trim());
+                cmd.Parameters.AddWithValue("@Price", price);
+                cmd.Parameters.AddWithValue("@Quantity", quantity);
+                conn.Open();
+                cmd.ExecuteNonQuery();
+            }
+
+            BindGridView();
+            txtProductName.Text = txtPrice.Text = txtQuantity.Text = "";
+        }
+
+        protected void GridViewProducts_RowDeleting(object sender, GridViewDeleteEventArgs e)
+        {
+            int productID = Convert.ToInt32(GridViewProducts.DataKeys[e.RowIndex].Value);
+            using (SqlConnection conn = new SqlConnection(connectionString))
+            {
+                SqlCommand cmd = new SqlCommand("DELETE FROM Products WHERE ProductID = @ProductID", conn);
+                cmd.Parameters.AddWithValue("@ProductID", productID);
+                conn.Open();
+                cmd.ExecuteNonQuery();
+            }
+
+            BindGridView();
+        }
+    }
+}
+
+
+DATABASE :
+
+
+create database wt5;
+
+use wt5;
+CREATE TABLE Products (
+    ProductID INT PRIMARY KEY IDENTITY,
+    ProductName NVARCHAR(50),
+    Price DECIMAL(10,2),
+    Quantity INT
+);
+
+
+Table for Trigger: 
+
+use wt5;
+CREATE TABLE ProductLogs (
+    LogID INT PRIMARY KEY IDENTITY,
+    ProductID INT,
+    ChangeType NVARCHAR(50),
+    ChangeDate DATETIME DEFAULT GETDATE()
+);
+
+
+Trigger: 
+
+CREATE TRIGGER trg_ProductUpdates
+ON Products
+AFTER INSERT, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (SELECT * FROM INSERTED)
+    BEGIN
+        INSERT INTO ProductLogs (ProductID, ChangeType)
+        SELECT ProductID, 'INSERTED' FROM INSERTED;
+    END
+
+    IF EXISTS (SELECT * FROM DELETED)
+    BEGIN
+        INSERT INTO ProductLogs (ProductID, ChangeType)
+        SELECT ProductID, 'DELETED' FROM DELETED;
+    END
+END;
+
+#optional - only for checking output
+
+To view Log data :
+
+use wt5;
+select * from Products;
+select * from ProductsLogs;

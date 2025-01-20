@@ -1,0 +1,236 @@
+default.aspx:
+
+<%@ Page Language="C#" AutoEventWireup="true" CodeBehind="Default.aspx.cs" Inherits="YourNamespace.ShoppingCart" %>
+
+<!DOCTYPE html>
+<html lang="en">
+<head runat="server">
+    <title>Simple Shopping Cart</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .form-container {
+            margin: 20px auto;
+            text-align: center;
+        }
+
+        .form-container input, .form-container button {
+            margin: 5px;
+            padding: 10px;
+            font-size: 1em;
+        }
+
+        table {
+            width: 80%;
+            margin: 20px auto;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .delete-button {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .delete-button:hover {
+            background-color: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <form id="form1" runat="server">
+        <h1>Shopping Cart</h1>
+
+        <!-- Input Form -->
+        <div class="form-container">
+            <asp:TextBox ID="txtName" runat="server" Placeholder="Product Name"></asp:TextBox>
+            <asp:TextBox ID="txtPrice" runat="server" Placeholder="Price"></asp:TextBox>
+            <asp:Button ID="btnAdd" runat="server" Text="Add Product" OnClick="btnAdd_Click" />
+        </div>
+
+        <!-- Error Message -->
+        <div class="form-container">
+            <asp:Label ID="lblError" runat="server" ForeColor="Red" Visible="false"></asp:Label>
+        </div>
+
+        <!-- Cart Table -->
+        <table>
+            <thead>
+                <tr>
+                    <th>Product Name</th>
+                    <th>Price</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <asp:GridView ID="GridView1" runat="server" AutoGenerateColumns="false" ShowHeaderWhenEmpty="false" OnRowCommand="GridView1_RowCommand">
+                    <Columns>
+                        <asp:BoundField DataField="Name" HeaderText="Product Name" />
+                        <asp:BoundField DataField="Price" HeaderText="Price" DataFormatString="{0:C}" />
+                        <asp:TemplateField>
+                            <ItemTemplate>
+                                <asp:Button ID="btnDelete" runat="server" Text="Delete" CommandName="Delete" CommandArgument='<%# Eval("Name") %>' CssClass="delete-button" OnClick="btnDelete_Click"/>
+                            </ItemTemplate>
+                        </asp:TemplateField>
+                    </Columns>
+                </asp:GridView>
+            </tbody>
+        </table>
+    </form>
+</body>
+</html>
+
+
+default.aspx.cs :
+
+using System;
+using System.Data;
+using System.IO;
+using System.Web.UI.WebControls;
+using Newtonsoft.Json; // Install via NuGet
+
+namespace YourNamespace
+{
+    public partial class ShoppingCart : System.Web.UI.Page
+    {
+        private string CartFilePath => Server.MapPath("~/App_Data/CartData.json");
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (!IsPostBack)
+            {
+                if (File.Exists(CartFilePath))
+                {
+                    LoadCartFromFile();
+                }
+                else
+                {
+                    InitializeCart();
+                }
+                BindGrid();
+            }
+        }
+
+        protected void btnAdd_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string name = txtName.Text.Trim();
+                if (string.IsNullOrWhiteSpace(name)) throw new Exception("Product name cannot be empty.");
+                if (!decimal.TryParse(txtPrice.Text.Trim(), out decimal price) || price <= 0)
+                    throw new Exception("Enter a valid price greater than 0.");
+
+                DataTable dt = Session["Cart"] as DataTable;
+                dt.Rows.Add(name, price);
+                SaveCartToFile();
+                BindGrid();
+
+                txtName.Text = string.Empty;
+                txtPrice.Text = string.Empty;
+                lblError.Visible = false;
+            }
+            catch (Exception ex)
+            {
+                lblError.Text = ex.Message;
+                lblError.Visible = true;
+            }
+        }
+
+        private void InitializeCart()
+        {
+            DataTable dt = new DataTable();
+            dt.Columns.Add("Name");
+            dt.Columns.Add("Price", typeof(decimal));
+            Session["Cart"] = dt;
+        }
+
+        private void BindGrid()
+        {
+            DataTable dt = Session["Cart"] as DataTable;
+            GridView1.DataSource = dt;
+            GridView1.DataBind();
+        }
+
+        private void SaveCartToFile()
+        {
+            DataTable dt = Session["Cart"] as DataTable;
+            string json = JsonConvert.SerializeObject(dt);
+            File.WriteAllText(CartFilePath, json);
+        }
+
+        private void LoadCartFromFile()
+        {
+            string json = File.ReadAllText(CartFilePath);
+            DataTable dt = JsonConvert.DeserializeObject<DataTable>(json);
+            Session["Cart"] = dt;
+        }
+
+        // Delete Button Event
+        protected void btnDelete_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Button btnDelete = (Button)sender;
+                string productName = btnDelete.CommandArgument;
+
+                DataTable dt = Session["Cart"] as DataTable;
+                DataRow[] rowsToDelete = dt.Select("Name = '" + productName + "'");
+
+                if (rowsToDelete.Length > 0)
+                {
+                    dt.Rows.Remove(rowsToDelete[0]);
+                    SaveCartToFile();
+                    BindGrid();
+                }
+            }
+            catch (Exception ex)
+            {
+                lblError.Text = "Error while deleting product: " + ex.Message;
+                lblError.Visible = true;
+            }
+        }
+
+        // GridView Row Command (needed for handling delete functionality)
+        protected void GridView1_RowCommand(object sender, System.Web.UI.WebControls.GridViewCommandEventArgs e)
+        {
+            if (e.CommandName == "Delete")
+            {
+                string productName = e.CommandArgument.ToString();
+
+                DataTable dt = Session["Cart"] as DataTable;
+                DataRow[] rowsToDelete = dt.Select("Name = '" + productName + "'");
+
+                if (rowsToDelete.Length > 0)
+                {
+                    dt.Rows.Remove(rowsToDelete[0]);
+                    SaveCartToFile();
+                    BindGrid();
+                }
+            }
+        }
+    }
+}
+
+
